@@ -3,6 +3,369 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Mobile Touch 4-Way Character Walk (Body Compass)</title>
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #111;
+      overflow: hidden;
+      touch-action: none;
+    }
+    canvas {
+      border: 2px solid #444;
+      background: #222;
+      max-width: 100%;
+      max-height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    ctx.imageSmoothingEnabled = false;
+
+    const sprites = {
+      south: { img: new Image(), src: 'south_walk.png', loaded: false, cols: 7, rows: 2, walkFrames: [0, 2, 4, 6], offsets: [0, 2, 0, 2] },
+      north: { img: new Image(), src: 'north_walk.png', loaded: false, cols: 7, rows: 2, walkFrames: [0, 2, 4, 6], offsets: [0, 2, 0, 2] },
+      east:  { img: new Image(), src: 'east_walk.png',  loaded: false, cols: 4, rows: 1, walkFrames: [0, 1, 2, 3], offsets: [0, 0, 0, 0] }
+    };
+
+    function loadSprite(key) {
+      const s = sprites[key];
+      s.img.onload = () => {
+        s.frameW = s.img.width / s.cols;
+        s.frameH = s.img.height / s.rows;
+        s.loaded = true;
+      };
+      s.img.src = s.src;
+    }
+
+    loadSprite('south');
+    loadSprite('north');
+    loadSprite('east');
+
+    const RENDER_HEIGHT = 120;
+    let charX = 360;
+    let charY = 240;
+
+    let frameIndex = 0;
+    let frameTimer = 0;
+    let isMoving = false;
+    let currentDirection = 'south';
+
+    let isTouching = false;
+    let touchX = 0;
+    let touchY = 0;
+
+    function updateInputPosition(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+
+      touchX = (clientX - rect.left) * scaleX;
+      touchY = (clientY - rect.top) * scaleY;
+    }
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      isTouching = true;
+      updateInputPosition(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (isTouching) {
+        updateInputPosition(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      isTouching = false;
+    }, { passive: false });
+
+    canvas.addEventListener('mousedown', e => {
+      isTouching = true;
+      updateInputPosition(e.clientX, e.clientY);
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      if (isTouching) {
+        updateInputPosition(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      isTouching = false;
+    });
+
+    // 캐릭터 중심 좌표 기준 방위 계산
+    function calculateDirection(x, y, charCenterX, charCenterY) {
+      const dx = x - charCenterX;
+      const dy = y - charCenterY;
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        return dx > 0 ? 'east' : 'west';
+      } else {
+        return dy > 0 ? 'south' : 'north';
+      }
+    }
+
+    // 캐릭터 중심 방위 가이드선 그리기
+    function drawBodyCompass(charCenterX, charCenterY) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+
+      // 몸 중심 기준 대각선 구획선
+      ctx.beginPath();
+      ctx.moveTo(charCenterX - 400, charCenterY - 400); ctx.lineTo(charCenterX + 400, charCenterY + 400);
+      ctx.moveTo(charCenterX + 400, charCenterY - 400); ctx.lineTo(charCenterX - 400, charCenterY + 400);
+      ctx.stroke();
+
+      // 캐릭터 주변 가이드 원
+      ctx.beginPath();
+      ctx.arc(charCenterX, charCenterY, 70, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const isAllLoaded = sprites.south.loaded && sprites.north.loaded && sprites.east.loaded;
+
+      if (!isAllLoaded) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('스프라이트 이미지를 불러오는 중입니다...', canvas.width / 2, canvas.height / 2);
+      } else {
+        const activeKey = (currentDirection === 'west') ? 'east' : currentDirection;
+        const active = sprites[activeKey];
+        const renderWidth = (active.frameW / active.frameH) * RENDER_HEIGHT;
+
+        // 현재 캐릭터 몸 중심 좌표 계산
+        const charCenterX = charX + renderWidth / 2;
+        const charCenterY = charY + RENDER_HEIGHT / 2;
+
+        drawBodyCompass(charCenterX, charCenterY);
+
+        isMoving = false;
+
+        // 터치 시 캐릭터 중심 위치 기준으로 방위 측정
+        if (isTouching) {
+          currentDirection = calculateDirection(touchX, touchY, charCenterX, charCenterY);
+          isMoving = true;
+
+          const speed = 3;
+          if (currentDirection === 'south') charY += speed;
+          if (currentDirection === 'north') charY -= speed;
+          if (currentDirection === 'east')  charX += speed;
+          if (currentDirection === 'west')  charX -= speed;
+        }
+
+        if (isMoving) {
+          frameTimer++;
+          if (frameTimer % 8 === 0) {
+            frameIndex = (frameIndex + 1) % active.walkFrames.length;
+          }
+        } else {
+          frameIndex = 0;
+        }
+
+        const currentFrame = active.walkFrames[frameIndex];
+        const sx = (currentFrame % active.cols) * active.frameW;
+        const sy = Math.floor(currentFrame / active.cols) * active.frameH;
+        const offsetY = isMoving ? active.offsets[frameIndex] : 0;
+
+        ctx.save();
+        if (currentDirection === 'west') {
+          ctx.translate(charX + renderWidth, charY + offsetY);
+          ctx.scale(-1, 1);
+          ctx.drawImage(
+            active.img,
+            sx, sy, active.frameW, active.frameH,
+            0, 0, renderWidth, RENDER_HEIGHT
+          );
+        } else {
+          ctx.drawImage(
+            active.img,
+            sx, sy, active.frameW, active.frameH,
+            charX, charY + offsetY, renderWidth, RENDER_HEIGHT
+          );
+        }
+        ctx.restore();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
+
+      touchX = (clientX - rect.left) * scaleX;
+      touchY = (clientY - rect.top) * scaleY;
+    }
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      isTouching = true;
+      updateInputPosition(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (isTouching) {
+        updateInputPosition(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      isTouching = false;
+    }, { passive: false });
+
+    canvas.addEventListener('mousedown', e => {
+      isTouching = true;
+      updateInputPosition(e.clientX, e.clientY);
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      if (isTouching) {
+        updateInputPosition(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      isTouching = false;
+    });
+
+    // 캐릭터 중심 좌표 기준 방위 계산
+    function calculateDirection(x, y, charCenterX, charCenterY) {
+      const dx = x - charCenterX;
+      const dy = y - charCenterY;
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        return dx > 0 ? 'east' : 'west';
+      } else {
+        return dy > 0 ? 'south' : 'north';
+      }
+    }
+
+    // 캐릭터 중심 방위 가이드선 그리기
+    function drawBodyCompass(charCenterX, charCenterY) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+
+      // 몸 중심 기준 대각선 구획선
+      ctx.beginPath();
+      ctx.moveTo(charCenterX - 400, charCenterY - 400); ctx.lineTo(charCenterX + 400, charCenterY + 400);
+      ctx.moveTo(charCenterX + 400, charCenterY - 400); ctx.lineTo(charCenterX - 400, charCenterY + 400);
+      ctx.stroke();
+
+      // 캐릭터 주변 가이드 원
+      ctx.beginPath();
+      ctx.arc(charCenterX, charCenterY, 70, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const isAllLoaded = sprites.south.loaded && sprites.north.loaded && sprites.east.loaded;
+
+      if (!isAllLoaded) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('스프라이트 이미지를 불러오는 중입니다...', canvas.width / 2, canvas.height / 2);
+      } else {
+        const activeKey = (currentDirection === 'west') ? 'east' : currentDirection;
+        const active = sprites[activeKey];
+        const renderWidth = (active.frameW / active.frameH) * RENDER_HEIGHT;
+
+        // 현재 캐릭터 몸 중심 좌표 계산
+        const charCenterX = charX + renderWidth / 2;
+        const charCenterY = charY + RENDER_HEIGHT / 2;
+
+        drawBodyCompass(charCenterX, charCenterY);
+
+        isMoving = false;
+
+        // 터치 시 캐릭터 중심 위치 기준으로 방위 측정
+        if (isTouching) {
+          currentDirection = calculateDirection(touchX, touchY, charCenterX, charCenterY);
+          isMoving = true;
+
+          const speed = 3;
+          if (currentDirection === 'south') charY += speed;
+          if (currentDirection === 'north') charY -= speed;
+          if (currentDirection === 'east')  charX += speed;
+          if (currentDirection === 'west')  charX -= speed;
+        }
+
+        if (isMoving) {
+          frameTimer++;
+          if (frameTimer % 8 === 0) {
+            frameIndex = (frameIndex + 1) % active.walkFrames.length;
+          }
+        } else {
+          frameIndex = 0;
+        }
+
+        const currentFrame = active.walkFrames[frameIndex];
+        const sx = (currentFrame % active.cols) * active.frameW;
+        const sy = Math.floor(currentFrame / active.cols) * active.frameH;
+        const offsetY = isMoving ? active.offsets[frameIndex] : 0;
+
+        ctx.save();
+        if (currentDirection === 'west') {
+          ctx.translate(charX + renderWidth, charY + offsetY);
+          ctx.scale(-1, 1);
+          ctx.drawImage(
+            active.img,
+            sx, sy, active.frameW, active.frameH,
+            0, 0, renderWidth, RENDER_HEIGHT
+          );
+        } else {
+          ctx.drawImage(
+            active.img,
+            sx, sy, active.frameW, active.frameH,
+            charX, charY + offsetY, renderWidth, RENDER_HEIGHT
+          );
+        }
+        ctx.restore();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
+ html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Mobile Touch 4-Way Character Walk</title>
   <style>
     body {
