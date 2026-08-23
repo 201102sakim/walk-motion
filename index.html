@@ -1,68 +1,150 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<title>Pixel Character Walk (4-Way Direction)</title>
-<style>
-body {
-display: flex;
-justify-content: center;
-align-items: center;
-height: 100vh;
-margin: 0;
-background-color: #111;
-}
-canvas {
-border: 2px solid #444;
-background: #222;
-}
-</style>
+  <meta charset="UTF-8">
+  <title>Pixel Character Walk (Left & Right with 1 Image)</title>
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #111;
+    }
+    canvas {
+      border: 2px solid #444;
+      background: #222;
+    }
+  </style>
 </head>
 <body>
-<canvas id="gameCanvas" width="800" height="400"></canvas>
+  <canvas id="gameCanvas" width="800" height="400"></canvas>
 
-<script>
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    ctx.imageSmoothingEnabled = false;
 
-// 픽셀 아트 선명도 유지
-ctx.imageSmoothingEnabled = false;
+    // 이미지 설정 (보내주신 오른쪽 걷기 이미지 1장만 사용)
+    const sideSprite = {
+      img: new Image(),
+      src: 'east_walk.png', // 이미지 파일명을 적어주세요.
+      loaded: false,
+      cols: 4,              // 4프레임 시트일 경우 4, 단일 이미지일 경우 자동 감지
+      rows: 1,
+      frameW: 0,
+      frameH: 0
+    };
 
-// 각 방향별 데이터 설정 (남/북: 7열 2행, 동/서: 4열 1행)
-const sprites = {
-south: { img: new Image(), src: 'south_walk.png', loaded: false, cols: 7, rows: 2, walkFrames: [0, 2, 4, 6], offsets: [0, 2, 0, 2] },
-north: { img: new Image(), src: 'north_walk.png', loaded: false, cols: 7, rows: 2, walkFrames: [0, 2, 4, 6], offsets: [0, 2, 0, 2] },
-east: { img: new Image(), src: 'east_walk.png', loaded: false, cols: 4, rows: 1, walkFrames: [0, 1, 2, 3], offsets: [0, 0, 0, 0] }
-};
+    sideSprite.img.onload = () => {
+      // 단일 이미지(1컷)인지 4프레임 시트인지 자동 판별
+      if (sideSprite.img.width / sideSprite.img.height < 1.2) {
+        sideSprite.cols = 1;
+        sideSprite.frameW = sideSprite.img.width;
+        sideSprite.frameH = sideSprite.img.height;
+      } else {
+        sideSprite.cols = 4;
+        sideSprite.frameW = sideSprite.img.width / sideSprite.cols;
+        sideSprite.frameH = sideSprite.img.height / sideSprite.rows;
+      }
+      sideSprite.loaded = true;
+    };
+    sideSprite.img.src = sideSprite.src;
 
-function loadSprite(key) {
-const s = sprites[key];
-s.img.onload = () => {
-s.frameW = s.img.width / s.cols;
-s.frameH = s.img.height / s.rows;
-s.loaded = true;
-};
-s.img.onerror = () => {
-console.error(${s.src} 이미지를 불러오지 못했습니다.);
-};
-s.img.src = s.src;
-}
+    const RENDER_HEIGHT = 150;
+    let charX = 370;
+    let charY = 120;
 
-loadSprite('south');
-loadSprite('north');
-loadSprite('east');
+    let frameIndex = 0;
+    let frameTimer = 0;
+    let isMoving = false;
+    let currentDirection = 'east'; // 'east' (오른쪽), 'west' (왼쪽)
 
-// 화면 출력 크기 고정
-const RENDER_HEIGHT = 150;
-let charX = 370;
-let charY = 120;
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
 
-let frameIndex = 0;
-let frameTimer = 0;
-let isMoving = false;
-let currentDirection = 'south';
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-const keys = {};
+      if (!sideSprite.loaded) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('이미지를 불러오는 중입니다...', canvas.width / 2, canvas.height / 2);
+      } else {
+        isMoving = false;
+
+        // 좌/우 이동 키 입력
+        if (keys['ArrowRight']) {
+          charX += 3;
+          currentDirection = 'east';
+          isMoving = true;
+        } else if (keys['ArrowLeft']) {
+          charX -= 3;
+          currentDirection = 'west';
+          isMoving = true;
+        }
+
+        // 프레임 진행
+        if (isMoving) {
+          frameTimer++;
+          if (frameTimer % 8 === 0) {
+            frameIndex = (frameIndex + 1) % sideSprite.cols;
+          }
+        } else {
+          frameIndex = 0;
+        }
+
+        const sx = frameIndex * sideSprite.frameW;
+        const sy = 0;
+        const renderWidth = (sideSprite.frameW / sideSprite.frameH) * RENDER_HEIGHT;
+
+        // 1컷짜리 이미지일 경우 코드로 직접 바운스 및 각도 흔듦 효과 부여
+        let offsetY = 0;
+        let rotationAngle = 0;
+        if (sideSprite.cols === 1 && isMoving) {
+          offsetY = (frameIndex % 2 === 0) ? -4 : 0; // 들썩임
+          rotationAngle = (frameIndex % 2 === 0) ? 0.05 : -0.05; // 갸우뚱 모션
+        }
+
+        ctx.save();
+
+        if (currentDirection === 'west') {
+          // 왼쪽 이동 시: 위치를 이동시킨 후 좌우 반전(scale -1, 1) 적용
+          ctx.translate(charX + renderWidth, charY + offsetY);
+          ctx.scale(-1, 1);
+          if (rotationAngle !== 0) ctx.rotate(rotationAngle);
+          
+          ctx.drawImage(
+            sideSprite.img,
+            sx, sy, sideSprite.frameW, sideSprite.frameH,
+            0, 0, renderWidth, RENDER_HEIGHT
+          );
+        } else {
+          // 오른쪽 이동 시: 정방향 출력
+          ctx.translate(charX, charY + offsetY);
+          if (rotationAngle !== 0) ctx.rotate(rotationAngle);
+
+          ctx.drawImage(
+            sideSprite.img,
+            sx, sy, sideSprite.frameW, sideSprite.frameH,
+            0, 0, renderWidth, RENDER_HEIGHT
+          );
+        }
+
+        ctx.restore();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
 window.addEventListener('keydown', e => keys[e.code] = true);
 window.addEventListener('keyup', e => keys[e.code] = false);
 
