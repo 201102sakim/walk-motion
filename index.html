@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Pixel Character Walk (4-Way Direction)</title>
+<style>
+body {
+display: flex;
+justify-content: center;
+align-items: center;
+height: 100vh;
+margin: 0;
+background-color: #111;
+}
+canvas {
+border: 2px solid #444;
+background: #222;
+}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// 픽셀 아트 선명도 유지
+ctx.imageSmoothingEnabled = false;
+
+// 각 방향별 데이터 설정 (남/북: 7열 2행, 동/서: 4열 1행)
+const sprites = {
+south: { img: new Image(), src: 'south_walk.png', loaded: false, cols: 7, rows: 2, walkFrames: [0, 2, 4, 6], offsets: [0, 2, 0, 2] },
+north: { img: new Image(), src: 'north_walk.png', loaded: false, cols: 7, rows: 2, walkFrames: [0, 2, 4, 6], offsets: [0, 2, 0, 2] },
+east: { img: new Image(), src: 'east_walk.png', loaded: false, cols: 4, rows: 1, walkFrames: [0, 1, 2, 3], offsets: [0, 0, 0, 0] }
+};
+
+function loadSprite(key) {
+const s = sprites[key];
+s.img.onload = () => {
+s.frameW = s.img.width / s.cols;
+s.frameH = s.img.height / s.rows;
+s.loaded = true;
+};
+s.img.onerror = () => {
+console.error(${s.src} 이미지를 불러오지 못했습니다.);
+};
+s.img.src = s.src;
+}
+
+loadSprite('south');
+loadSprite('north');
+loadSprite('east');
+
+// 화면 출력 크기 고정
+const RENDER_HEIGHT = 150;
+let charX = 370;
+let charY = 120;
+
+let frameIndex = 0;
+let frameTimer = 0;
+let isMoving = false;
+let currentDirection = 'south';
+
+const keys = {};
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+function gameLoop() {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+const isAllLoaded = sprites.south.loaded && sprites.north.loaded && sprites.east.loaded;
+
+if (!isAllLoaded) {
+ctx.fillStyle = '#fff';
+ctx.font = '16px sans-serif';
+ctx.textAlign = 'center';
+ctx.fillText('스프라이트 이미지를 불러오는 중입니다...', canvas.width / 2, canvas.height / 2);
+} else {
+isMoving = false;
+
+// 상하좌우 이동 조작
+if (keys['ArrowDown']) {
+charY += 3;
+currentDirection = 'south';
+isMoving = true;
+} else if (keys['ArrowUp']) {
+charY -= 3;
+currentDirection = 'north';
+isMoving = true;
+} else if (keys['ArrowRight']) {
+charX += 3;
+currentDirection = 'east';
+isMoving = true;
+} else if (keys['ArrowLeft']) {
+charX -= 3;
+currentDirection = 'west';
+isMoving = true;
+}
+
+// 왼쪽 이동 시 east_walk.png를 반전해서 사용
+const activeKey = (currentDirection === 'west') ? 'east' : currentDirection;
+const active = sprites[activeKey];
+
+if (isMoving) {
+frameTimer++;
+if (frameTimer % 8 === 0) {
+frameIndex = (frameIndex + 1) % active.walkFrames.length;
+}
+} else {
+frameIndex = 0;
+}
+
+const currentFrame = active.walkFrames[frameIndex];
+const sx = (currentFrame % active.cols) * active.frameW;
+const sy = Math.floor(currentFrame / active.cols) * active.frameH;
+const offsetY = isMoving ? active.offsets[frameIndex] : 0;
+
+const renderWidth = (active.frameW / active.frameH) * RENDER_HEIGHT;
+
+ctx.save();
+if (currentDirection === 'west') {
+// 왼쪽 이동 시 X축 반전 렌더링
+ctx.translate(charX + renderWidth, charY + offsetY);
+ctx.scale(-1, 1);
+ctx.drawImage(
+active.img,
+sx, sy, active.frameW, active.frameH,
+0, 0, renderWidth, RENDER_HEIGHT
+);
+} else {
+// 일반 렌더링 (south, north, east)
+ctx.drawImage(
+active.img,
+sx, sy, active.frameW, active.frameH,
+charX, charY + offsetY, renderWidth, RENDER_HEIGHT
+);
+}
+ctx.restore();
+}
+
+requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
