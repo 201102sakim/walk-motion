@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Mobile Touch 4-Way Character Walk (Body Compass)</title>
+  <title>Mobile Touch 4-Way Character Walk</title>
   <style>
     body {
       display: flex;
@@ -45,6 +45,9 @@
         s.frameH = s.img.height / s.rows;
         s.loaded = true;
       };
+      s.img.onerror = () => {
+        console.error(`${s.src} 이미지를 불러오는 데 실패했습니다. 파일명을 확인해 주세요.`);
+      };
       s.img.src = s.src;
     }
 
@@ -63,6 +66,132 @@
 
     let isTouching = false;
     let touchX = 0;
+    let touchY = 0;
+
+    function updateInputPosition(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+
+      touchX = (clientX - rect.left) * scaleX;
+      touchY = (clientY - rect.top) * scaleY;
+    }
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      isTouching = true;
+      updateInputPosition(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (isTouching) {
+        updateInputPosition(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      isTouching = false;
+    }, { passive: false });
+
+    canvas.addEventListener('mousedown', e => {
+      isTouching = true;
+      updateInputPosition(e.clientX, e.clientY);
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      if (isTouching) {
+        updateInputPosition(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      isTouching = false;
+    });
+
+    function calculateDirection(x, y, charCenterX, charCenterY) {
+      const dx = x - charCenterX;
+      const dy = y - charCenterY;
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        return dx > 0 ? 'east' : 'west';
+      } else {
+        return dy > 0 ? 'south' : 'north';
+      }
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const isAllLoaded = sprites.south.loaded && sprites.north.loaded && sprites.east.loaded;
+
+      if (!isAllLoaded) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('스프라이트 이미지를 불러오는 중입니다...', canvas.width / 2, canvas.height / 2);
+      } else {
+        const activeKey = (currentDirection === 'west') ? 'east' : currentDirection;
+        const active = sprites[activeKey];
+        const renderWidth = (active.frameW / active.frameH) * RENDER_HEIGHT;
+
+        const charCenterX = charX + renderWidth / 2;
+        const charCenterY = charY + RENDER_HEIGHT / 2;
+
+        isMoving = false;
+
+        if (isTouching) {
+          currentDirection = calculateDirection(touchX, touchY, charCenterX, charCenterY);
+          isMoving = true;
+
+          const speed = 3;
+          if (currentDirection === 'south') charY += speed;
+          if (currentDirection === 'north') charY -= speed;
+          if (currentDirection === 'east')  charX += speed;
+          if (currentDirection === 'west')  charX -= speed;
+        }
+
+        if (isMoving) {
+          frameTimer++;
+          if (frameTimer % 8 === 0) {
+            frameIndex = (frameIndex + 1) % active.walkFrames.length;
+          }
+        } else {
+          frameIndex = 0;
+        }
+
+        const currentFrame = active.walkFrames[frameIndex];
+        const sx = (currentFrame % active.cols) * active.frameW;
+        const sy = Math.floor(currentFrame / active.cols) * active.frameH;
+        const offsetY = isMoving ? active.offsets[frameIndex] : 0;
+
+        ctx.save();
+        if (currentDirection === 'west') {
+          ctx.translate(charX + renderWidth, charY + offsetY);
+          ctx.scale(-1, 1);
+          ctx.drawImage(
+            active.img,
+            sx, sy, active.frameW, active.frameH,
+            0, 0, renderWidth, RENDER_HEIGHT
+          );
+        } else {
+          ctx.drawImage(
+            active.img,
+            sx, sy, active.frameW, active.frameH,
+            charX, charY + offsetY, renderWidth, RENDER_HEIGHT
+          );
+        }
+        ctx.restore();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
     let touchY = 0;
 
     function updateInputPosition(clientX, clientY) {
